@@ -1,0 +1,4 @@
+build
+sandbox
+.env
+logs/*.json

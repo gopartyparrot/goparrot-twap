@@ -1,0 +1,22 @@
+# docker-compose.yml
+version: '3'
+services:
+  app:
+    restart: always
+    build: .
+    env_file:
+      - ./.env
+    ports:
+      - '127.0.0.1:8080:8080'
+    logging:
+      driver: 'json-file'
+      options:
+        max-file: '5'
+        max-size: 10m
+    volumes:
+      - ./logs:/app/logs
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 1500M
