@@ -7,7 +7,7 @@ import (
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
-	"github.com/gopartyparrot/goparrot_buy/config"
+	"github.com/gopartyparrot/goparrot-twap/config"
 )
 
 type TokenAccountInfo struct {
@@ -119,9 +119,6 @@ func ExecuteInstructions(
 		return nil, err
 	}
 
-	// For debug, print tx accounts
-	// tx.EncodeTree(text.NewTreeEncoder(os.Stdout, "Instruction"))
-
 	_, err = tx.Sign(
 		func(key solana.PublicKey) *solana.PrivateKey {
 			for _, payer := range signers {
@@ -139,7 +136,7 @@ func ExecuteInstructions(
 	sig, err := clientRPC.SendTransactionWithOpts(
 		ctx,
 		tx,
-		true, // set false to simulate transaction first
+		false,
 		rpc.CommitmentFinalized,
 	)
 	if err != nil {

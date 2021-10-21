@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"log"
 	"os"
@@ -9,17 +10,22 @@ import (
 
 	"github.com/alexflint/go-arg"
 	"github.com/go-co-op/gocron"
-	"github.com/gopartyparrot/goparrot_buy/swap"
+	twapConfig "github.com/gopartyparrot/goparrot-twap/config"
+	"github.com/gopartyparrot/goparrot-twap/swap"
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
 type CliArgs struct {
-	RPCUrl    string `arg:"required,env" help:"rpc url"`
-	WSUrl     string `arg:"required,env" help:"ws url"`
-	WalletPK  string `arg:"required,env,-w" help:"wallet private key"`
-	StorePath string `arg:"env" help:"store successful swaps infos" default:"./logs/swaps.json"`
+	RPCUrl       string        `arg:"required,env" help:"rpc url"`
+	WalletPK     string        `arg:"required,env,--wallet" help:"wallet private key"`
+	StorePath    string        `arg:"env" help:"store successful swaps logs" default:"./logs/swaps.json"`
+	Interval     string        `arg:"required,--interval" help:"run interval in time units (s, m, h)"`
+	Pair         string        `arg:"required,--pair" help:"pair"`
+	Side         swap.SwapSide `arg:"--side" help:"side of the swap can be buy or sell (default buy)" default:"buy"`
+	Amount       float64       `arg:"required,--amount" help:"amount to buy or sell"`
+	TargetAmount float64       `arg:"--target" help:"amount ro reach" default:"999999999999999"`
 }
 
 func run() error {
@@ -37,33 +43,33 @@ func run() error {
 	config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
 	logger, err := config.Build()
 	if err != nil {
-		log.Panicln("can't initialize zap logger: %w", err)
+		return fmt.Errorf("can't initialize zap logger: %w", err)
 	}
 	defer logger.Sync()
-	logger.Info("Using RPC",
+	logger.Info("using RPC",
 		zap.String("http", args.RPCUrl),
-		zap.String("ws", args.WSUrl),
 	)
 
 	s := gocron.NewScheduler(time.UTC)
 
 	swapper, err := swap.NewTokenSwapper(swap.TokenSwapperConfig{
 		RPCEndpoint: args.RPCUrl,
-		WSEndpoint:  args.WSUrl,
 		PrivateKey:  args.WalletPK,
 		StorePath:   args.StorePath,
 		Logger:      logger,
+		Tokens:      twapConfig.GetTokens(),
+		Pools:       twapConfig.GetPools(),
 	})
 	if err != nil {
 		return err
 	}
 
-	err = swapper.Init(context.Background())
+	err = swapper.Init(context.Background(), args.Pair, args.Side, args.Amount, args.TargetAmount)
 	if err != nil {
 		return err
 	}
 
-	s.Every(5).Seconds().Do(swapper.Start)
+	s.Every(args.Interval).Do(swapper.Start)
 
 	s.StartBlocking()
 

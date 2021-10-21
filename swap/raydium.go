@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	bin "github.com/gagliardetto/binary"
@@ -11,7 +12,7 @@ import (
 	"github.com/gagliardetto/solana-go/programs/system"
 	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
-	"github.com/gopartyparrot/goparrot_buy/config"
+	"github.com/gopartyparrot/goparrot-twap/config"
 )
 
 type RaydiumSwap struct {
@@ -55,6 +56,10 @@ func (s *RaydiumSwap) Swap(
 	// slippage 2%
 	minimumOutAmount = minimumOutAmount * 98 / 100
 
+	if minimumOutAmount <= 0 {
+		return nil, errors.New("min swap output amount must be grater then zero, try to swap a bigger amount")
+	}
+
 	instrs := []solana.Instruction{}
 	signers := []solana.PrivateKey{s.account}
 	tempAccount := solana.NewWallet()
@@ -68,8 +73,13 @@ func (s *RaydiumSwap) Swap(
 		if err != nil {
 			return nil, err
 		}
+		accountLamports := rentCost
+		if fromToken == config.NativeSOL {
+			// If is from a SOL account, transfer the amount
+			accountLamports += amount
+		}
 		createInst, err := system.NewCreateAccountInstruction(
-			amount+rentCost,
+			accountLamports,
 			config.TokenAccountSize,
 			solana.TokenProgramID,
 			s.account.PublicKey(),

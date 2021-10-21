@@ -1,13 +1,12 @@
 # docker-compose.yml
 version: '3'
 services:
-  app:
+  twap:
     restart: always
+    image: twap
     build: .
     env_file:
       - ./.env
-    ports:
-      - '127.0.0.1:8080:8080'
     logging:
       driver: 'json-file'
       options:
@@ -15,8 +14,3 @@ services:
         max-size: 10m
     volumes:
       - ./logs:/app/logs
-    deploy:
-      resources:
-        limits:
-          cpus: '0.50'
-          memory: 1500M
