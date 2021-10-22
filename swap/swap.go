@@ -104,6 +104,9 @@ func (s *TokenSwapper) Init(
 	if len(missingAccounts) != 0 {
 		instrs := []solana.Instruction{}
 		for mint, _ := range missingAccounts {
+			if mint == config.NativeSOL {
+				continue
+			}
 			s.logger.Info("need to create token account", zap.String("mint", mint))
 			inst, err := associatedtokenaccount.NewCreateInstruction(
 				s.account.PublicKey(),

@@ -61,11 +61,13 @@ func run() error {
 		Pools:       twapConfig.GetPools(),
 	})
 	if err != nil {
+		logger.Fatal("create swapper", zap.Error(err))
 		return err
 	}
 
 	err = swapper.Init(context.Background(), args.Pair, args.Side, args.Amount, args.TargetAmount)
 	if err != nil {
+		logger.Fatal("init swapper", zap.Error(err))
 		return err
 	}
 
@@ -78,8 +80,7 @@ func run() error {
 
 func main() {
 	err := run()
-
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatalln("run error %w", err)
 	}
 }
