@@ -7,6 +7,8 @@ import (
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
+	confirm "github.com/gagliardetto/solana-go/rpc/sendAndConfirmTransaction"
+	"github.com/gagliardetto/solana-go/rpc/ws"
 	"github.com/gopartyparrot/goparrot-twap/config"
 )
 
@@ -98,20 +100,14 @@ func GetTokenAccountsFromMints(
 	return existingAccounts, missingAccounts, nil
 }
 
-func ExecuteInstructions(
-	ctx context.Context,
-	clientRPC *rpc.Client,
-	signers []solana.PrivateKey,
-	inst ...solana.Instruction,
-) (*solana.Signature, error) {
-
+func BuildTransacion(ctx context.Context, clientRPC *rpc.Client, signers []solana.PrivateKey, instrs ...solana.Instruction) (*solana.Transaction, error) {
 	recent, err := clientRPC.GetRecentBlockhash(ctx, rpc.CommitmentFinalized)
 	if err != nil {
 		return nil, err
 	}
 
 	tx, err := solana.NewTransaction(
-		inst,
+		instrs,
 		recent.Value.Blockhash,
 		solana.TransactionPayer(signers[0].PublicKey()),
 	)
@@ -132,12 +128,52 @@ func ExecuteInstructions(
 	if err != nil {
 		return nil, err
 	}
+	return tx, nil
+}
+
+func ExecuteInstructions(
+	ctx context.Context,
+	clientRPC *rpc.Client,
+	signers []solana.PrivateKey,
+	instrs ...solana.Instruction,
+) (*solana.Signature, error) {
+
+	tx, err := BuildTransacion(ctx, clientRPC, signers, instrs...)
+	if err != nil {
+		return nil, err
+	}
 
 	sig, err := clientRPC.SendTransactionWithOpts(
 		ctx,
 		tx,
 		false,
 		rpc.CommitmentFinalized,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &sig, nil
+}
+
+func ExecuteInstructionsAndWaitConfirm(
+	ctx context.Context,
+	clientRPC *rpc.Client,
+	clientWS *ws.Client,
+	signers []solana.PrivateKey,
+	instrs ...solana.Instruction,
+) (*solana.Signature, error) {
+
+	tx, err := BuildTransacion(ctx, clientRPC, signers, instrs...)
+	if err != nil {
+		return nil, err
+	}
+
+	sig, err := confirm.SendAndConfirmTransaction(
+		ctx,
+		clientRPC,
+		clientWS,
+		tx,
 	)
 	if err != nil {
 		return nil, err

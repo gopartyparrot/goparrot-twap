@@ -8,7 +8,9 @@ import (
 
 	"github.com/gagliardetto/solana-go"
 	associatedtokenaccount "github.com/gagliardetto/solana-go/programs/associated-token-account"
+	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/gagliardetto/solana-go/rpc/ws"
 	"github.com/gopartyparrot/goparrot-twap/config"
 	"github.com/gopartyparrot/goparrot-twap/store"
 	"go.uber.org/zap"
@@ -18,7 +20,7 @@ var (
 	ErrSwapPoolNotFound     = errors.New("swap pool not found for given pair")
 	ErrUpdateBalances       = errors.New("failed to update wallet balances")
 	ErrFromBalanceNotEnough = errors.New("from balance not enough for swap")
-	ErrTargetAmountReached  = errors.New("target balance amount reached")
+	ErrStopAmountReached    = errors.New("stop amount reached, balance is full")
 )
 
 type SwapSide string
@@ -38,24 +40,31 @@ type SwapStatus struct {
 }
 
 type SwapTaskConfig struct {
-	pair         string
-	side         SwapSide
-	amount       float64
-	targetAmount float64
-	pool         config.PoolConfig
+	pair                 string
+	side                 SwapSide
+	amount               float64
+	stopAmount           float64
+	fromToken            string
+	toToken              string
+	transferAddress      string
+	transferTokenAddress solana.PublicKey
+	transferAmount       float64
+	pool                 config.PoolConfig
 }
 
 type TokenSwapperConfig struct {
-	RPCEndpoint string
-	PrivateKey  string
-	StorePath   string
-	Tokens      map[string]config.TokenInfo
-	Pools       map[string]config.PoolConfig
-	Logger      *zap.Logger
+	ClientRPC  *rpc.Client
+	ClientWS   *ws.Client
+	PrivateKey string
+	StorePath  string
+	Tokens     map[string]config.TokenInfo
+	Pools      map[string]config.PoolConfig
+	Logger     *zap.Logger
 }
 
 type TokenSwapper struct {
 	clientRPC     *rpc.Client
+	clientWS      *ws.Client
 	store         *store.JSONStore
 	account       solana.PrivateKey
 	logger        *zap.Logger
@@ -67,19 +76,41 @@ type TokenSwapper struct {
 	swapTask      SwapTaskConfig
 }
 
+func (s *TokenSwapper) UpdateTransferTokenAddress(ctx context.Context, ownerAddress string) error {
+	if ownerAddress == "" {
+		return nil
+	}
+
+	toTokenPK := solana.MustPublicKeyFromBase58(s.swapTask.toToken)
+	ownerPK := solana.MustPublicKeyFromBase58(ownerAddress)
+	existingAccounts, missingAccounts, err := GetTokenAccountsFromMints(ctx, *s.clientRPC, ownerPK, toTokenPK)
+	if err != nil {
+		return err
+	}
+	if len(missingAccounts) > 0 {
+		s.logger.Info("transfer address do not have a token account", zap.String("mint", s.swapTask.toToken))
+	}
+	s.swapTask.transferTokenAddress = existingAccounts[s.swapTask.toToken]
+	return nil
+}
+
 func (s *TokenSwapper) Init(
 	ctx context.Context,
 	pair string,
 	side SwapSide,
 	amount float64,
-	targetAmount float64,
+	stopAmount float64,
+	transferAddress string,
+	transferAmount float64,
 ) error {
 
 	s.swapTask = SwapTaskConfig{
-		pair:         pair,
-		side:         side,
-		amount:       amount,
-		targetAmount: targetAmount,
+		pair:            pair,
+		side:            side,
+		amount:          amount,
+		stopAmount:      stopAmount,
+		transferAddress: transferAddress,
+		transferAmount:  transferAmount,
 	}
 
 	for k, v := range s.pools {
@@ -89,6 +120,13 @@ func (s *TokenSwapper) Init(
 	}
 	if s.swapTask.pool.FromToken == "" {
 		return ErrSwapPoolNotFound
+	}
+
+	s.swapTask.fromToken = s.swapTask.pool.FromToken
+	s.swapTask.toToken = s.swapTask.pool.ToToken
+	if side == SwapSide_Sell {
+		s.swapTask.fromToken = s.swapTask.pool.ToToken
+		s.swapTask.toToken = s.swapTask.pool.FromToken
 	}
 
 	mints := []solana.PublicKey{
@@ -103,7 +141,7 @@ func (s *TokenSwapper) Init(
 
 	if len(missingAccounts) != 0 {
 		instrs := []solana.Instruction{}
-		for mint, _ := range missingAccounts {
+		for mint := range missingAccounts {
 			if mint == config.NativeSOL {
 				continue
 			}
@@ -118,7 +156,7 @@ func (s *TokenSwapper) Init(
 			}
 			instrs = append(instrs, inst)
 		}
-		sig, err := ExecuteInstructions(ctx, s.clientRPC, []solana.PrivateKey{s.account}, instrs...)
+		sig, err := ExecuteInstructionsAndWaitConfirm(ctx, s.clientRPC, s.clientWS, []solana.PrivateKey{s.account}, instrs...)
 		if err != nil {
 			return err
 		}
@@ -128,6 +166,12 @@ func (s *TokenSwapper) Init(
 		}
 	}
 	s.tokenAccounts = existingAccounts
+
+	err = s.UpdateTransferTokenAddress(ctx, transferAddress)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -146,6 +190,30 @@ func (s *TokenSwapper) UpdateBalances(ctx context.Context) error {
 	return nil
 }
 
+func (s *TokenSwapper) TransferBalance(ctx context.Context, sourceAddress solana.PublicKey, amount uint64, destAddress solana.PublicKey) error {
+	if s.swapTask.transferAddress == "" {
+		return nil
+	}
+
+	transferTx, err := token.NewTransferInstruction(
+		amount,
+		sourceAddress,
+		destAddress,
+		s.account.PublicKey(),
+		[]solana.PublicKey{},
+	).ValidateAndBuild()
+	if err != nil {
+		return err
+	}
+	sig, err := ExecuteInstructionsAndWaitConfirm(ctx, s.clientRPC, s.clientWS, []solana.PrivateKey{s.account}, transferTx)
+	if err != nil {
+		return err
+	}
+	s.logger.Info("transfer balance success", zap.String("txID", sig.String()))
+
+	return nil
+}
+
 func (s *TokenSwapper) Start() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
 	defer cancel()
@@ -155,31 +223,38 @@ func (s *TokenSwapper) Start() error {
 		return ErrUpdateBalances
 	}
 
-	fromToken := s.swapTask.pool.FromToken
-	toToken := s.swapTask.pool.ToToken
-
-	if s.swapTask.side == SwapSide_Sell {
-		fromToken = s.swapTask.pool.ToToken
-		toToken = s.swapTask.pool.FromToken
-	}
-
+	fromToken := s.swapTask.fromToken
 	fromAddress := s.tokenAccounts[fromToken]
 	fromBalance := s.tokenBalances[fromAddress.String()]
 	fromTokenInfo := s.tokens[fromToken]
 
+	toToken := s.swapTask.toToken
 	toAddress := s.tokenAccounts[toToken]
 	toBalance := s.tokenBalances[toAddress.String()]
 	toTokenInfo := s.tokens[toToken]
 
 	amount := fromTokenInfo.FromFloat(s.swapTask.amount)
-	targetAmount := toTokenInfo.FromFloat(s.swapTask.targetAmount)
+	stopAmount := toTokenInfo.FromFloat(s.swapTask.stopAmount)
+	transferAmount := toTokenInfo.FromFloat(s.swapTask.transferAmount)
 
-	if toBalance > targetAmount {
-		s.logger.Info("target amount reached for swap "+fromTokenInfo.Symbol+" to "+toTokenInfo.Symbol,
-			zap.Uint64("targetAmount", targetAmount),
+	if transferAmount > 0 && toBalance > transferAmount {
+		s.logger.Info("transfer amount reached, transfering "+toTokenInfo.Symbol+" to transferAddress",
+			zap.Float64("transferAmount", s.swapTask.transferAmount),
+			zap.String("transferAddress", s.swapTask.transferAddress),
+			zap.String("transferTokenAddress", s.swapTask.transferTokenAddress.String()),
+		)
+		err = s.TransferBalance(ctx, toAddress, toBalance, s.swapTask.transferTokenAddress)
+		if err != nil {
+
+		}
+	}
+
+	if stopAmount > 0 && toBalance > stopAmount {
+		s.logger.Info("stop amount reached, stopping swap "+fromTokenInfo.Symbol+" to "+toTokenInfo.Symbol,
+			zap.Uint64("stopAmount", stopAmount),
 			zap.Uint64("currentBalance", toBalance),
 		)
-		return ErrTargetAmountReached
+		return ErrStopAmountReached
 	}
 
 	if amount > fromBalance {
@@ -220,7 +295,6 @@ func (s *TokenSwapper) Start() error {
 }
 
 func NewTokenSwapper(cfg TokenSwapperConfig) (*TokenSwapper, error) {
-	clientRPC := rpc.New(cfg.RPCEndpoint)
 
 	store, err := store.OpenJSONStore(cfg.StorePath)
 	if err != nil {
@@ -233,12 +307,13 @@ func NewTokenSwapper(cfg TokenSwapperConfig) (*TokenSwapper, error) {
 	}
 
 	raydiumSwap := RaydiumSwap{
-		clientRPC: clientRPC,
+		clientRPC: cfg.ClientRPC,
 		account:   privateKey,
 	}
 
 	l := TokenSwapper{
-		clientRPC:     clientRPC,
+		clientRPC:     cfg.ClientRPC,
+		clientWS:      cfg.ClientWS,
 		store:         store,
 		logger:        cfg.Logger,
 		pools:         cfg.Pools,
