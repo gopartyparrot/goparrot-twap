@@ -47,7 +47,7 @@ type SwapTaskConfig struct {
 	fromToken            string
 	toToken              string
 	transferAddress      string
-	transferTokenAddress solana.PublicKey
+	transferTokenAccount solana.PublicKey
 	transferAmount       float64
 	pool                 config.PoolConfig
 }
@@ -76,7 +76,7 @@ type TokenSwapper struct {
 	swapTask      SwapTaskConfig
 }
 
-func (s *TokenSwapper) UpdateTransferTokenAddress(ctx context.Context, ownerAddress string) error {
+func (s *TokenSwapper) UpdateTransferTokenAccount(ctx context.Context, ownerAddress string) error {
 	if ownerAddress == "" {
 		return nil
 	}
@@ -89,8 +89,9 @@ func (s *TokenSwapper) UpdateTransferTokenAddress(ctx context.Context, ownerAddr
 	}
 	if len(missingAccounts) > 0 {
 		s.logger.Info("transfer address do not have a token account", zap.String("mint", s.swapTask.toToken))
+		return nil
 	}
-	s.swapTask.transferTokenAddress = existingAccounts[s.swapTask.toToken]
+	s.swapTask.transferTokenAccount = existingAccounts[s.swapTask.toToken]
 	return nil
 }
 
@@ -167,7 +168,7 @@ func (s *TokenSwapper) Init(
 	}
 	s.tokenAccounts = existingAccounts
 
-	err = s.UpdateTransferTokenAddress(ctx, transferAddress)
+	err = s.UpdateTransferTokenAccount(ctx, transferAddress)
 	if err != nil {
 		return err
 	}
@@ -191,10 +192,6 @@ func (s *TokenSwapper) UpdateBalances(ctx context.Context) error {
 }
 
 func (s *TokenSwapper) TransferBalance(ctx context.Context, sourceAddress solana.PublicKey, amount uint64, destAddress solana.PublicKey) error {
-	if s.swapTask.transferAddress == "" {
-		return nil
-	}
-
 	transferTx, err := token.NewTransferInstruction(
 		amount,
 		sourceAddress,
@@ -207,10 +204,10 @@ func (s *TokenSwapper) TransferBalance(ctx context.Context, sourceAddress solana
 	}
 	sig, err := ExecuteInstructionsAndWaitConfirm(ctx, s.clientRPC, s.clientWS, []solana.PrivateKey{s.account}, transferTx)
 	if err != nil {
+		s.logger.Warn("transfer amount failed, will try again in next interval", zap.Error(err))
 		return err
 	}
 	s.logger.Info("transfer balance success", zap.String("txID", sig.String()))
-
 	return nil
 }
 
@@ -237,16 +234,14 @@ func (s *TokenSwapper) Start() error {
 	stopAmount := toTokenInfo.FromFloat(s.swapTask.stopAmount)
 	transferAmount := toTokenInfo.FromFloat(s.swapTask.transferAmount)
 
-	if transferAmount > 0 && toBalance > transferAmount {
+	if transferAmount > 0 && toBalance > transferAmount && s.swapTask.transferAddress != "" {
 		s.logger.Info("transfer amount reached, transfering "+toTokenInfo.Symbol+" to transferAddress",
-			zap.Float64("transferAmount", s.swapTask.transferAmount),
+			zap.Float64("triggerAmount", s.swapTask.transferAmount),
+			zap.Uint64("transferAmount", toBalance),
 			zap.String("transferAddress", s.swapTask.transferAddress),
-			zap.String("transferTokenAddress", s.swapTask.transferTokenAddress.String()),
+			zap.String("transferTokenAcccount", s.swapTask.transferTokenAccount.String()),
 		)
-		err = s.TransferBalance(ctx, toAddress, toBalance, s.swapTask.transferTokenAddress)
-		if err != nil {
-
-		}
+		s.TransferBalance(ctx, toAddress, toBalance, s.swapTask.transferTokenAccount)
 	}
 
 	if stopAmount > 0 && toBalance > stopAmount {
