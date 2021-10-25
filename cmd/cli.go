@@ -10,7 +10,6 @@ import (
 
 	"github.com/alexflint/go-arg"
 	"github.com/gagliardetto/solana-go/rpc"
-	"github.com/gagliardetto/solana-go/rpc/ws"
 	"github.com/go-co-op/gocron"
 	twapConfig "github.com/gopartyparrot/goparrot-twap/config"
 	"github.com/gopartyparrot/goparrot-twap/swap"
@@ -20,17 +19,17 @@ import (
 )
 
 type CliArgs struct {
-	RPCUrl          string        `arg:"required,env" help:"rpc url"`
-	RPCWs           string        `arg:"required,env" help:"rpc websocket"`
-	WalletPK        string        `arg:"required,env,--wallet" help:"wallet private key"`
-	StorePath       string        `arg:"env" help:"store successful swaps logs" default:"./logs/swaps.json"`
-	Interval        string        `arg:"required,--interval" help:"run interval in time units (s, m, h)"`
-	Pair            string        `arg:"required,--pair" help:"pair"`
-	Side            swap.SwapSide `arg:"--side" help:"side of the swap can be buy or sell (default buy)" default:"buy"`
-	Amount          float64       `arg:"required,--amount" help:"amount to buy or sell"`
-	StopAmount      float64       `arg:"--stopAmount" help:"amount ro reach" default:"999999999999999"`
-	TransferAddress string        `arg:"--transferAddress" help:"address to transfer the TransferAmount once reached"`
-	TransferAmount  float64       `arg:"--transferAmount" help:"amount to tranfer to the TransferAddress when balance is greater this amount"`
+	RPCUrl            string        `arg:"required,env" help:"rpc url"`
+	RPCWs             string        `arg:"required,env" help:"rpc websocket"`
+	WalletPK          string        `arg:"required,env,--wallet" help:"wallet private key"`
+	StorePath         string        `arg:"env" help:"store successful swaps logs" default:"./logs/swaps.json"`
+	Interval          string        `arg:"required,--interval" help:"run interval in time units (s, m, h)"`
+	Pair              string        `arg:"required,--pair" help:"pair"`
+	Side              swap.SwapSide `arg:"--side" help:"side of the swap can be buy or sell (default buy)" default:"buy"`
+	Amount            float64       `arg:"required,--amount" help:"amount to buy or sell"`
+	StopAmount        float64       `arg:"--stopAmount" help:"amount ro reach" default:"999999999999999"`
+	TransferAddress   string        `arg:"--transferAddress" help:"address to transfer the balance when above the TransferThreshold"`
+	TransferThreshold float64       `arg:"--transferThreshold" help:"threshold for transfer all balance to TransferAddress"`
 }
 
 func run() error {
@@ -58,14 +57,10 @@ func run() error {
 	s := gocron.NewScheduler(time.UTC)
 
 	clientRPC := rpc.New(args.RPCUrl)
-	clientWS, err := ws.Connect(context.Background(), args.RPCWs)
-	if err != nil {
-		panic(err)
-	}
 
 	swapper, err := swap.NewTokenSwapper(swap.TokenSwapperConfig{
 		ClientRPC:  clientRPC,
-		ClientWS:   clientWS,
+		RPCWs:      args.RPCWs,
 		PrivateKey: args.WalletPK,
 		StorePath:  args.StorePath,
 		Logger:     logger,
@@ -84,7 +79,7 @@ func run() error {
 		args.Amount,
 		args.StopAmount,
 		args.TransferAddress,
-		args.TransferAmount,
+		args.TransferThreshold,
 	)
 	if err != nil {
 		logger.Fatal("init swapper", zap.Error(err))

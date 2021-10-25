@@ -159,12 +159,17 @@ func ExecuteInstructions(
 func ExecuteInstructionsAndWaitConfirm(
 	ctx context.Context,
 	clientRPC *rpc.Client,
-	clientWS *ws.Client,
+	RPCWs string,
 	signers []solana.PrivateKey,
 	instrs ...solana.Instruction,
 ) (*solana.Signature, error) {
 
 	tx, err := BuildTransacion(ctx, clientRPC, signers, instrs...)
+	if err != nil {
+		return nil, err
+	}
+
+	clientWS, err := ws.Connect(ctx, RPCWs)
 	if err != nil {
 		return nil, err
 	}

@@ -10,7 +10,6 @@ import (
 	associatedtokenaccount "github.com/gagliardetto/solana-go/programs/associated-token-account"
 	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
-	"github.com/gagliardetto/solana-go/rpc/ws"
 	"github.com/gopartyparrot/goparrot-twap/config"
 	"github.com/gopartyparrot/goparrot-twap/store"
 	"go.uber.org/zap"
@@ -48,13 +47,13 @@ type SwapTaskConfig struct {
 	toToken              string
 	transferAddress      string
 	transferTokenAccount solana.PublicKey
-	transferAmount       float64
+	transferThreshold    float64
 	pool                 config.PoolConfig
 }
 
 type TokenSwapperConfig struct {
 	ClientRPC  *rpc.Client
-	ClientWS   *ws.Client
+	RPCWs      string
 	PrivateKey string
 	StorePath  string
 	Tokens     map[string]config.TokenInfo
@@ -64,7 +63,7 @@ type TokenSwapperConfig struct {
 
 type TokenSwapper struct {
 	clientRPC     *rpc.Client
-	clientWS      *ws.Client
+	RPCWs         string
 	store         *store.JSONStore
 	account       solana.PrivateKey
 	logger        *zap.Logger
@@ -102,16 +101,16 @@ func (s *TokenSwapper) Init(
 	amount float64,
 	stopAmount float64,
 	transferAddress string,
-	transferAmount float64,
+	transferThreshold float64,
 ) error {
 
 	s.swapTask = SwapTaskConfig{
-		pair:            pair,
-		side:            side,
-		amount:          amount,
-		stopAmount:      stopAmount,
-		transferAddress: transferAddress,
-		transferAmount:  transferAmount,
+		pair:              pair,
+		side:              side,
+		amount:            amount,
+		stopAmount:        stopAmount,
+		transferAddress:   transferAddress,
+		transferThreshold: transferThreshold,
 	}
 
 	for k, v := range s.pools {
@@ -157,7 +156,7 @@ func (s *TokenSwapper) Init(
 			}
 			instrs = append(instrs, inst)
 		}
-		sig, err := ExecuteInstructionsAndWaitConfirm(ctx, s.clientRPC, s.clientWS, []solana.PrivateKey{s.account}, instrs...)
+		sig, err := ExecuteInstructionsAndWaitConfirm(ctx, s.clientRPC, s.RPCWs, []solana.PrivateKey{s.account}, instrs...)
 		if err != nil {
 			return err
 		}
@@ -202,7 +201,7 @@ func (s *TokenSwapper) TransferBalance(ctx context.Context, sourceAddress solana
 	if err != nil {
 		return err
 	}
-	sig, err := ExecuteInstructionsAndWaitConfirm(ctx, s.clientRPC, s.clientWS, []solana.PrivateKey{s.account}, transferTx)
+	sig, err := ExecuteInstructionsAndWaitConfirm(ctx, s.clientRPC, s.RPCWs, []solana.PrivateKey{s.account}, transferTx)
 	if err != nil {
 		s.logger.Warn("transfer amount failed, will try again in next interval", zap.Error(err))
 		return err
@@ -232,11 +231,11 @@ func (s *TokenSwapper) Start() error {
 
 	amount := fromTokenInfo.FromFloat(s.swapTask.amount)
 	stopAmount := toTokenInfo.FromFloat(s.swapTask.stopAmount)
-	transferAmount := toTokenInfo.FromFloat(s.swapTask.transferAmount)
+	transferThreshold := toTokenInfo.FromFloat(s.swapTask.transferThreshold)
 
-	if transferAmount > 0 && toBalance > transferAmount && s.swapTask.transferAddress != "" {
-		s.logger.Info("transfer amount reached, transfering "+toTokenInfo.Symbol+" to transferAddress",
-			zap.Float64("triggerAmount", s.swapTask.transferAmount),
+	if transferThreshold > 0 && toBalance > transferThreshold && s.swapTask.transferAddress != "" {
+		s.logger.Info("transfer threshold reached, transfering "+toTokenInfo.Symbol+" to transferAddress",
+			zap.Float64("threshold", s.swapTask.transferThreshold),
 			zap.Uint64("transferAmount", toBalance),
 			zap.String("transferAddress", s.swapTask.transferAddress),
 			zap.String("transferTokenAcccount", s.swapTask.transferTokenAccount.String()),
@@ -308,7 +307,7 @@ func NewTokenSwapper(cfg TokenSwapperConfig) (*TokenSwapper, error) {
 
 	l := TokenSwapper{
 		clientRPC:     cfg.ClientRPC,
-		clientWS:      cfg.ClientWS,
+		RPCWs:         cfg.RPCWs,
 		store:         store,
 		logger:        cfg.Logger,
 		pools:         cfg.Pools,

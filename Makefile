@@ -1,4 +1,4 @@
-.PHONY: airdrop
+.PHONY: twap
 
 twap:
 	mkdir -p build
