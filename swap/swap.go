@@ -11,6 +11,7 @@ import (
 	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gopartyparrot/goparrot-twap/config"
+	"github.com/gopartyparrot/goparrot-twap/price"
 	"github.com/gopartyparrot/goparrot-twap/store"
 	"go.uber.org/zap"
 )
@@ -48,6 +49,7 @@ type SwapTaskConfig struct {
 	transferAddress      string
 	transferTokenAccount solana.PublicKey
 	transferThreshold    float64
+	priceThreshold       float32
 	pool                 config.PoolConfig
 }
 
@@ -75,25 +77,6 @@ type TokenSwapper struct {
 	swapTask      SwapTaskConfig
 }
 
-func (s *TokenSwapper) UpdateTransferTokenAccount(ctx context.Context, ownerAddress string) error {
-	if ownerAddress == "" {
-		return nil
-	}
-
-	toTokenPK := solana.MustPublicKeyFromBase58(s.swapTask.toToken)
-	ownerPK := solana.MustPublicKeyFromBase58(ownerAddress)
-	existingAccounts, missingAccounts, err := GetTokenAccountsFromMints(ctx, *s.clientRPC, ownerPK, toTokenPK)
-	if err != nil {
-		return err
-	}
-	if len(missingAccounts) > 0 {
-		s.logger.Info("transfer address do not have a token account", zap.String("mint", s.swapTask.toToken))
-		return nil
-	}
-	s.swapTask.transferTokenAccount = existingAccounts[s.swapTask.toToken]
-	return nil
-}
-
 func (s *TokenSwapper) Init(
 	ctx context.Context,
 	pair string,
@@ -102,6 +85,7 @@ func (s *TokenSwapper) Init(
 	stopAmount float64,
 	transferAddress string,
 	transferThreshold float64,
+	priceThreshold float32,
 ) error {
 
 	s.swapTask = SwapTaskConfig{
@@ -111,6 +95,7 @@ func (s *TokenSwapper) Init(
 		stopAmount:        stopAmount,
 		transferAddress:   transferAddress,
 		transferThreshold: transferThreshold,
+		priceThreshold:    priceThreshold,
 	}
 
 	for k, v := range s.pools {
@@ -175,6 +160,25 @@ func (s *TokenSwapper) Init(
 	return nil
 }
 
+func (s *TokenSwapper) UpdateTransferTokenAccount(ctx context.Context, ownerAddress string) error {
+	if ownerAddress == "" {
+		return nil
+	}
+
+	toTokenPK := solana.MustPublicKeyFromBase58(s.swapTask.toToken)
+	ownerPK := solana.MustPublicKeyFromBase58(ownerAddress)
+	existingAccounts, missingAccounts, err := GetTokenAccountsFromMints(ctx, *s.clientRPC, ownerPK, toTokenPK)
+	if err != nil {
+		return err
+	}
+	if len(missingAccounts) > 0 {
+		s.logger.Info("transfer address do not have a token account", zap.String("mint", s.swapTask.toToken))
+		return nil
+	}
+	s.swapTask.transferTokenAccount = existingAccounts[s.swapTask.toToken]
+	return nil
+}
+
 func (s *TokenSwapper) UpdateBalances(ctx context.Context) error {
 	pks := []solana.PublicKey{}
 	for _, v := range s.tokenAccounts {
@@ -188,6 +192,16 @@ func (s *TokenSwapper) UpdateBalances(ctx context.Context) error {
 		s.tokenBalances[address] = amount
 	}
 	return nil
+}
+
+func (s *TokenSwapper) GetCurrentPrice(ctx context.Context) (float32, error) {
+	client := price.NewClient(nil)
+	res, err := client.SimplePrice([]string{s.swapTask.pool.CoinGeckoID}, []string{"usd"})
+	if err != nil {
+		return 0, err
+	}
+	price := *res
+	return price[s.swapTask.pool.CoinGeckoID]["usd"], nil
 }
 
 func (s *TokenSwapper) TransferBalance(ctx context.Context, sourceAddress solana.PublicKey, amount uint64, destAddress solana.PublicKey) error {
@@ -257,6 +271,30 @@ func (s *TokenSwapper) Start() error {
 			zap.Uint64("currentBalance", fromBalance),
 		)
 		return ErrFromBalanceNotEnough
+	}
+
+	// Check if current price is
+	if s.swapTask.priceThreshold > 0 {
+		currentPrice, err := s.GetCurrentPrice(ctx)
+		if err != nil {
+			s.logger.Warn("fail to get current price", zap.Error(err))
+			return err
+		}
+
+		if s.swapTask.side == SwapSide_Sell && currentPrice < s.swapTask.priceThreshold {
+			s.logger.Info("price still low (below priceThreshold). no need to sell",
+				zap.Float32("currentPrice", currentPrice),
+				zap.Float32("priceThreshold", s.swapTask.priceThreshold),
+			)
+			return nil
+		}
+		if s.swapTask.side == SwapSide_Buy && currentPrice > s.swapTask.priceThreshold {
+			s.logger.Info("price still high (above priceThreshold). no need to buy",
+				zap.Float32("currentPrice", currentPrice),
+				zap.Float32("priceThreshold", s.swapTask.priceThreshold),
+			)
+			return nil
+		}
 	}
 
 	sig, err := s.raydiumSwap.Swap(

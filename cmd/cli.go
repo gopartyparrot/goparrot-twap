@@ -30,6 +30,7 @@ type CliArgs struct {
 	StopAmount        float64       `arg:"--stopAmount" help:"amount ro reach" default:"999999999999999"`
 	TransferAddress   string        `arg:"--transferAddress" help:"address to transfer the balance when above the TransferThreshold"`
 	TransferThreshold float64       `arg:"--transferThreshold" help:"threshold for transfer all balance to TransferAddress"`
+	PriceThreshold    float32       `arg:"--priceThreshold" help:"threshold for buy or sell depending on token price"`
 }
 
 func run() error {
@@ -80,6 +81,7 @@ func run() error {
 		args.StopAmount,
 		args.TransferAddress,
 		args.TransferThreshold,
+		args.PriceThreshold,
 	)
 	if err != nil {
 		logger.Fatal("init swapper", zap.Error(err))

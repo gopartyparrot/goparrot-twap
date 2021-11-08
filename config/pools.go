@@ -22,6 +22,7 @@ type PoolConfig struct {
 	Service           string
 	FromToken         string
 	ToToken           string
+	CoinGeckoID       string
 	RaydiumPoolConfig RaydiumPoolConfig
 }
 

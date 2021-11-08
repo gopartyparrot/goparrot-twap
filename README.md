@@ -58,5 +58,11 @@ Or you can use docker container:
 # First build
 docker-compose build
 # Then run
-docker run twap --side buy --pair PRT:SOL --amount 0.001 --target 100 --interval 30s
+docker run twap --side buy --pair PRT:SOL --amount 0.001 --stopAmount 100 --interval 30s
+```
+
+To build for linux you can use
+
+```sh
+env GOOS=linux GOARCH=386 go build -o ./twap ./cmd/cli.go
 ```

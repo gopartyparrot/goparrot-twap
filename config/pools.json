@@ -25,6 +25,7 @@
     "Service": "raydium_swap",
     "FromToken": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     "ToToken": "PRT88RkA4Kg5z7pKnezeNH4mafTvtQdfFgpQTGRjz44",
+    "CoinGeckoID": "parrot-protocol",
     "RaydiumPoolConfig": {
       "AmmId": "DpNCmLN3sAN8DGfZsczBGURCQkZMoWhKTj5MjCiWt8i3",
       "AmmAuthority": "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1",
