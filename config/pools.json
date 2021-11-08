@@ -20,5 +20,27 @@
       "SerumPcVaultAccount": "B34rGhNUNxnSfxodkUoqYC3kGMdF4BjFHV2rQZAzQPMF",
       "SerumVaultSigner": "9ZGDGCN9BHiqEy44JAd1ExaAiRoh9HWou8nw44MbhnNX"
     }
+  },
+  "PRT:USDC": {
+    "Service": "raydium_swap",
+    "FromToken": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "ToToken": "PRT88RkA4Kg5z7pKnezeNH4mafTvtQdfFgpQTGRjz44",
+    "RaydiumPoolConfig": {
+      "AmmId": "F7ghMK5aSS8QDBjCnD4UtbwQEkwchNRDrGMESrDWZoZf",
+      "AmmAuthority": "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1",
+      "AmmOpenOrders": "FqkiYzJyT2B6M8uZJaQMfc7HfETsZw1LD1yaY4JEwEnX",
+      "AmmTargetOrders": "La6BF2W8vW5jdfQ7De1APoqCtNhBKYCsFV9xrD6EoA5",
+      "AmmQuantities": "11111111111111111111111111111111",
+      "PoolCoinTokenAccount": "EZnhuufBtzWoV5S5P1QhLGajB6JeCFYpBpeBn8PmXjog",
+      "PoolPcTokenAccount": "2U4RQq9BP3Mo8vhG7feow1gsexhFD4jq2jPQcWHGSy6f",
+      "SerumProgramId": "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin",
+      "SerumMarket": "HjcBZcqCDP1dQk5TLwmMoXH7xhVo29GkaSmP5qiuCSqB",
+      "SerumBids": "8SL3GkUfyZDXHBVMjoQQbzNPMKVHr9yb6SpFDthp5ox6",
+      "SerumAsks": "HEnK2aK8R2nnrdJyvgrhK7oUgzvDkvhMGUmRcPAwrXeC",
+      "SerumEventQueue": "3QnaZhkgWBTyiEyChfMjtmpi8R4T1gnfLgsK6KwNsp18",
+      "SerumCoinVaultAccount": "3a865gAUx9KAwcfSdqNHBqJs2w7b2GzR7yZrWHmE5b1m",
+      "SerumPcVaultAccount": "G5EvFamQksAGknJkmQbLc3n5vLNrpQvksFzwfpmgKi24",
+      "SerumVaultSigner": "a94pYaxAtQ7q7pYgXfNgkyS6Fj94QBJpraY8MjyvbNq"
+    }
   }
 }
